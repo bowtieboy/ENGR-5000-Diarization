@@ -26,3 +26,6 @@ octave-workspace
 
 # Audio files
 *.m4a
+
+# MATLAB project files
+*.prj
