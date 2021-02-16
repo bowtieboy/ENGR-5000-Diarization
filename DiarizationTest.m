@@ -12,14 +12,15 @@ audioFile = "breakfast1.m4a"; % Which file to grab
 %% Calculations
 
 % Create matrix of audio values
-desiredFFTResolution = 10; % Desired difference between freq. bands
-windowSize = floor(audioFreq / desiredFFTResolution); % Get samples / window
-audioWindows = AudioSplitter(audioStream, windowSize); % Split the audio file
+timeWindowLength = 0.1; % Desired difference between freq. bands
+[audioWindows,windowSize] = AudioSplitter(audioStream, audioFreq, timeWindowLength); % Split the audio file
+
 
 % Calculate the fft
-fftWindows = zeros(length(audioWindows), length(audioWindows(1,:))); % Pre-allocate matrix
+fftWindows = zeros(length(audioWindows), length(audioWindows(1,:)) / 2); % Pre-allocate matrix
 actualFFTResolution = audioFreq / windowSize; % Calculate exact fft band gap
 fbands = (0 : windowSize - 1) * actualFFTResolution; % Make vector of bands
 for row = 1 : length(fftWindows) % Calculate window of each fft
-    fftWindows(row, :) = fft(audioWindows(row, :));
+    currentFFT = fft(audioWindows(row, :));
+    fftWindows(row, :) = currentFFT(1: length(currentFFT) / 2);
 end
