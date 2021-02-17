@@ -2,9 +2,8 @@ clear;
 clc;
 
 % TODO:
-%   1) Debug stuttering issue when playing filtered sound back
-%   2) Create models to evaulate diarization
-%   3) Evaluate each model to see benefits vs constraints of each
+%   1) Create models to evaulate diarization
+%   2) Evaluate each model to see benefits vs constraints of each
 
 %% Initialize variables being used
 % Load the antialiasing lowpass filter
@@ -28,7 +27,6 @@ disp(['Breaking audio vector into chunks with a time delta of ', num2str(timeWin
 
 % Perform bandpass filter on the signals to elimate aliasing
 disp('Applying speech (bandpass) filter to audio clips.');
-
 filteredWindows = zeros(length(audioWindows(:, 1)), windowSize - order); % Pre-allocate
 for row = 1 : length(audioWindows(:, 1))
     currentFilter = speechFilter.filter(audioWindows(row, :));
@@ -38,9 +36,11 @@ end
 % Recombine filtered audio into array to test sound
 disp('Recombining filtered audio into single vector.');
 filteredVector = zeros(length(filteredWindows(:, 1)) * length(filteredWindows(1, :)), 1);
+iterator = 1;
 for row = 1 : length(filteredWindows(:, 1))
     for col = 1 : length(filteredWindows(1, :))
-        filteredVector(((row - 1) * length(filteredWindows(1, :))) + col) = filteredWindows(row, col);
+        filteredVector(iterator) = filteredWindows(row, col);
+        iterator = iterator + 1;
     end
 end
 

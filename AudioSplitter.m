@@ -23,7 +23,7 @@ function [windows,samplesPerWindow] = AudioSplitter(audio, sampleFreq, timeWindo
                 windows(row, col) = windows(row - 1, (samplesPerWindow - filterOrder) + col);
                 continue;
             end
-            windows(row, col) = audio(((row - 1) * samplesPerWindow) + col - filterOrder);
+            windows(row, col) = audio(((row - 1) * samplesPerWindow) + col - (filterOrder * (row - 1)));
         end
     end
 end
