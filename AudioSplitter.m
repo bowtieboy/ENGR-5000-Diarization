@@ -1,11 +1,11 @@
-function [windows,samplesPerWindow] = AudioSplitter(audio, sampleFreq, timeWindowLength)
+function [windows,samplesPerWindow] = AudioSplitter(audio, sampleFreq, timeWindowLength, filterOrder)
 % AUDIOSPLITTER Splits vector of floats into chunks of time
 % depending on the sample frequency of the audio
 %   WINDOWS = AUDIOSPLITTER(AUDIO, SAMPLEFREQ, WINDOWSIZE) returns matrix
 %   where the rows are the time slices and the columns are samples in each
 %   time slice.
 
-    samplesPerWindow = sampleFreq * timeWindowLength;
+    samplesPerWindow = (sampleFreq * timeWindowLength) + filterOrder;
 
     % Grab the initial values
     samples = length(audio);
@@ -16,9 +16,14 @@ function [windows,samplesPerWindow] = AudioSplitter(audio, sampleFreq, timeWindo
     windows = zeros(windowAmount, samplesPerWindow);
     
     % Loop through the audio vector and assign the values
-    for row = 1 : windowAmount
+    windows(1, :) = audio(1 : samplesPerWindow);
+    for row = 2 : windowAmount
         for col = 1 : samplesPerWindow
-            windows(row, col) = audio(((row - 1) * samplesPerWindow) + col);
+            if (col <= filterOrder)
+                windows(row, col) = windows(row - 1, (samplesPerWindow - filterOrder) + col);
+                continue;
+            end
+            windows(row, col) = audio(((row - 1) * samplesPerWindow) + col - filterOrder);
         end
     end
 end
