@@ -21,9 +21,6 @@ octave-workspace
 # Simulink autosave extension
 .autosave
 
-# .MAT Files
-*.mat
-
 # Audio files
 *.m4a
 
