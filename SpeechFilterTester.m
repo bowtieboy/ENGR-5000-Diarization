@@ -11,7 +11,7 @@ freq3 = 15000; % Needs to be larger freq so plotting doesnt look bad
 
 t = linspace(0, endTime, fs*endTime);
 
-y1 = 0.5 .* sin(2 * pi * freq1 .* t);
+y1 = 2 .* sin(2 * pi * freq1 .* t);
 y2 = sin(2 * pi * freq2 .* t);
 y3 = 0.5 .* sin(2 * pi * freq3 .* t);
 
