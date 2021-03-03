@@ -19,6 +19,5 @@ file2 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-cle
 
 %% Diarization Model
 
-da = AudioDiarization(speechFilter);
-da.addAudioClip(audioStream, audioFreq);
-da.diarizeAudio(1, 0.025, 0.01);
+da = SpeechProcessing(speechFilter);
+da.diarizeAudio(audioStream, audioFreq, 1, 0.5);
