@@ -1,4 +1,4 @@
-classdef SpeechProcessing < handle
+classdef (ConstructOnLoad) SpeechProcessing < handle
     
     % Private properties
     properties (SetAccess = private)
