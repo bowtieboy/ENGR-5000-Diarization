@@ -6,13 +6,15 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         d_vectors = struct();
         d_vectors_length = 0;
         embedding_length = 128;
+        window_size = 1; % seconds
+        window_overlap = 0.5 % seconds
     end
     
     % Private methods
     methods (Access = protected)
         
         % Calculate the cosine similarity between two vectors
-        function cos_sim = vectorSimilarity(obj, v1, v2)
+        function cos_sim = vectorSimilarity(~, v1, v2)
             
             cos_sim = dot(v1, v2) / (norm(v1) * norm(v2));
             
@@ -39,7 +41,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         
         % Break the desired audio stream into windows of given size and
         % overlap
-        function windows = makeAudioWindows(obj, audio, fs, window_size, window_overlap)
+        function windows = makeAudioWindows(~, audio, fs, window_size, window_overlap)
             
             % If overlap is set to window length, change it to 0
             if (window_size <= window_overlap)
@@ -88,7 +90,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end            
         end
         
-        function speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, window_size, window_overlap, speakers)
+        function speaker_indices = getSpeechSpeakerIndices(~, fs, windows, window_size, window_overlap, speakers)
                         
             % Convert window size and overlamp to sample domain
             window_size = window_size * fs;
@@ -123,7 +125,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end
         end
         
-        function original_speaker_indices = getOriginalSpeakerIndices(obj, speech_indices, speech_speaker_indices)
+        function original_speaker_indices = getOriginalSpeakerIndices(~, speech_indices, speech_speaker_indices)
             
             % Initial values
             original_speaker_indices = struct();
@@ -308,7 +310,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 [M,I] = max(similarities(:, s));
                 
                 if(M < threshold)
-                    speakers(s) = "Uncrecognized speaker";
+                    speakers(s) = "Unrecognized speaker";
                     continue;
                 end
                 
@@ -328,13 +330,46 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
         end
         
+        function unique_speakers = determineUniqueSpeakers(~, speakers)
+                        
+            % Append the first name
+            unique_speakers = speakers(1).speaker;
+            
+            % Loop through all the speakers
+            for s = 2 : length(speakers)
+                % Flag to determine unique speaker
+                new_speaker = true;
+                % Loop through all the names already recorded
+                for u = 1 : length(unique_speakers)
+                    % If the name is already in the list, ignore it 
+                    if (strcmp(unique_speakers(u), speakers(s).speaker))
+                        new_speaker = false;
+                    end
+                end
+                
+                % If the name is not in the list, append it to the list
+                if (new_speaker)
+                    unique_speakers = [unique_speakers; speakers(s).speaker];
+                end
+            end
+            
+        end
+        
         function visualizeResults(obj, audio, fs, speakers)
             
-            % Reverse the process used to attribute speakers to windows to
-            % get the indices of the audio clip spoken by the speakers
-            speech_vector = preProcessAudio(obj, audio, fs);
-            windows = makeAudioWindows(obj, speech_vector, fs, 1, 0.5);
-            speaker_indices = getSpeakerIndices(obj, fs, windows, 1, 0.5, speakers);
+            % Create time vector for plotting
+            time = linspace(0, length(audio) / fs, length(audio));
+            
+            % Plot audio signal over time
+            plot(time, audio, 'k');
+            xlabel('Time (s)');
+            ylabel('Amplitude (?)');
+            title('Diarization of Audio Signal');
+            hold on;
+            
+            % Determine number of unique speakers and assign each a color
+            unique_speakers = determineUniqueSpeakers(obj, speakers);
+            
         end
     end
 end
