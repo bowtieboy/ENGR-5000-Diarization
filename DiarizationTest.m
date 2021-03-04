@@ -16,4 +16,4 @@ file2 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-cle
 %% Diarization Model
 
 [speakers, similarity_matrix] = speech_processing_model.diarizeAudioClip(audio_stream, audio_freq, 0.65);
-speakers = speakers.';
+%speech_processing_model.visualizeResults(audio_stream, audio_freq, speakers);
