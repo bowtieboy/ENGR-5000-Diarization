@@ -4,10 +4,13 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
     properties (SetAccess = private)
         bandpass_filter
         d_vectors = struct();
-        d_vectors_length = 0;
+        d_vectors_total = 0;
+        trained_speakers = 0;
         embedding_length = 128;
         window_size = 1; % seconds
         window_overlap = 0.5 % seconds
+        speaker_classifier;
+        speaker_names = {};
     end
     
     % Private methods
@@ -25,6 +28,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             % Apply bandpass filter
             data = obj.bandpass_filter.filter(audio);
+            
+            % Normalize audio
+            data = data ./ norm(data);
             
             % Cut out silences
             speechIdx = detectSpeech(data.', fs);
@@ -191,7 +197,6 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 leftover_samples = (speech_speaker_indices(speaker_change).idx(2) - speech_speaker_indices(speaker_change).idx(1)) - delta_idx;
                 
             end
-            
         end
     end
     
@@ -224,12 +229,15 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             % Check if name already exists
             name_exists = 1;
-            for names = 1 : obj.d_vectors_length
+            for names = 1 : length(obj.speaker_names)
                 if (strcmp(obj.d_vectors(names).name, name))
                     name_exists = 0;
                 end
             end
             assert(name_exists, 'User already exists in the database.')
+            
+            % If name doesn't exist, add it to the database
+            obj.speaker_names{length(obj.speaker_names) + 1} = name;
             
             % Pre-process audio
             disp(['Pre-processing ', num2str(length(speaker_audio)) ,' audio clips.']);
@@ -259,28 +267,41 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 
             end
             
-            % Average embeddings
-            disp('Averaging the audio embeddings.');
-            average_embedding = zeros(1, obj.embedding_length);
-            current_embedding_clip = zeros(1, obj.embedding_length);
-            for embedding = 1 : length(speaker_embeddings)
-                for row = 1 : length(speaker_embeddings(embedding).emb(:, 1))
-                    current_embedding_clip = average_embedding + speaker_embeddings(embedding).emb(row, :);
+            % Store embeddings
+            for e = 1 : length(speaker_embeddings)
+                for r = 1 : length(speaker_embeddings(e).emb(:, 1))
+                    obj.d_vectors(obj.d_vectors_total + 1).emb = speaker_embeddings(e).emb(r, :);
+                    obj.d_vectors(obj.d_vectors_total + 1).name = name;
+                    obj.d_vectors_total = obj.d_vectors_total + 1;
                 end
-                current_embedding_clip = current_embedding_clip ./ length(speaker_embeddings(embedding).emb(:, 1));
-                average_embedding = average_embedding + current_embedding_clip;
             end
-            average_embedding = average_embedding ./ length(speaker_embeddings);
             
-            % Store final d-vector
-            disp('Storing the final embedding.');
-            obj.d_vectors_length = obj.d_vectors_length + 1;
-            obj.d_vectors(obj.d_vectors_length).speaker_embedding = average_embedding;
-            obj.d_vectors(obj.d_vectors_length).name = name;
+            % Increment the number of speakers remembered
+            obj.trained_speakers = obj.trained_speakers + 1;
+            
+            % Create inputs for fitcknn
+            num_obvs = obj.d_vectors_total;
+            num_vars = length(speaker_embeddings(1).emb(1, :));
+            observations = zeros(num_obvs, num_vars);
+            speakers = {};
+            for e = 1 : obj.d_vectors_total
+                observations(e, :) = obj.d_vectors(e).emb;
+                speakers{e} = obj.d_vectors(e).name;
+            end
+            speakers = speakers.';
+            
+            % Fit KNN to data points
+            obj.speaker_classifier = fitcknn(observations, speakers,...
+                'OptimizeHyperparameters', 'all', 'HyperparameterOptimizationOptions',...
+                struct('UseParallel', 1));
+
         end
         
         % Diarize the given audio clip
-        function [original_speaker_indices, return_similarities] = diarizeAudioClip(obj, audio, fs, threshold)
+        function [original_speaker_indices, return_similarities, speaker_names] = diarizeAudioClip(obj, audio, fs, threshold)
+            
+            % Make sure the model has been trained on at least one speaker
+            assert(~isempty(obj.speaker_classifier), 'No speakers have been trained on this model.')
             
             % Make sure audio clip is long enough, otherwise error out
             assert((length(audio) / fs) >= 1, 'Audio clip is not long enough to diarize.');
@@ -293,39 +314,43 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             disp('Extracting d-vectors from audio clip.');
             speaker_embeddings = getEmbeddings(obj, processed_audio, fs);
             
+            
             % Determine the similarity
+            
+            
             disp('Calculating the similarities between the d-vectors and recorded speakers.');
-            speakers = strings(length(speaker_embeddings(:, 1)), 1);
-            similarities = zeros(obj.d_vectors_length, length(speakers));
-            for w = 1 : length(speakers)
-                % Compare the windows embedding vs the recorded ones
-                for dvec = 1 : obj.d_vectors_length
-                    similarities(dvec, w) = vectorSimilarity(obj, speaker_embeddings(w, :), obj.d_vectors(dvec).speaker_embedding);
+            % Input variable
+            num_obvs = length(speaker_embeddings(:, 1));
+            num_vars = length(speaker_embeddings(1, :));
+            observations = zeros(num_obvs, num_vars);
+            for e = 1 : length(speaker_embeddings(:, 1))
+                observations(e, :) = speaker_embeddings(e, :);
+            end
+            % Use KNN to classify embeddings
+            [labels, score, cost] = predict(obj.speaker_classifier, observations);
+            
+            % Apply threshold to the estimated speakers to cutoff any below
+            % the requirement
+            for s = 1 : length(score(:, 1))
+                % Check if the max of the row is less than the threshold.
+                % If so, change speaker to 'Unknown'.
+                if (threshold > max(score(s, :)))
+                    labels(s) = cellstr('Unknown');
                 end
             end
-            
-            % Mark the speaker with the highest similarity as the person in
-            % the window
-            for s = 1 : length(speakers)
-                [M,I] = max(similarities(:, s));
-                
-                if(M < threshold)
-                    speakers(s) = "Unrecognized speaker";
-                    continue;
-                end
-                
-                speakers(s) = obj.d_vectors(I).name;
-            end
-            
+                        
             % Get the indices of the original audio clip that each speaker
             % is attributed to
             windows = makeAudioWindows(obj, processed_audio, fs, 1, 0.5);
-            speech_speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, 1, 0.5, speakers);
+            speech_speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, 1, 0.5, labels);
             original_speaker_indices = getOriginalSpeakerIndices(obj, speech_indices, speech_speaker_indices);
             
             % Return similarities if requested
             if (nargout > 1)
-                return_similarities = similarities;
+                return_similarities = score;
+            end
+            if (nargout > 2)
+                speaker_names = obj.speaker_names;
             end
             
         end
