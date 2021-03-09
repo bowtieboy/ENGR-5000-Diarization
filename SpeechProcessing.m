@@ -198,6 +198,14 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 
             end
         end
+        
+        function timeIndices = getTimeForIdx(~, idx, fs)
+            
+            timeIndices = zeros(1, length(idx));
+            for i = 1 : length(idx)
+                timeIndices(i) = idx(i) / fs;
+            end
+        end
     end
     
     % Public methods
@@ -385,6 +393,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Create time vector for plotting
             time = linspace(0, length(audio) / fs, length(audio));
             
+            y_max = max(audio);
+            y_min = min(audio);
+            
             % Plot audio signal over time
             plot(time, audio, 'k');
             xlabel('Time (s)');
@@ -395,6 +406,39 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Determine number of unique speakers and assign each a color
             unique_speakers = determineUniqueSpeakers(obj, speakers);
             
+            % Create color array
+            colors = ["red"; "green"; "blue"; "yellow"; "magenta"; "cyan"; "black"; "white"];
+            speaker_colors = [];
+            for c = 1 : length(unique_speakers)
+                speaker_colors = [speaker_colors, colors(c)];
+            end
+            
+            % Loop through the indices and plot them
+            for u = 1 : length(speakers)
+                
+                % Determine the speaker color
+                for c = 1 : length(unique_speakers)
+                    if (strcmp(speakers(u).speaker, string(unique_speakers(c))))
+                        color = speaker_colors(c);
+                    end
+                end
+                
+                for i = 1 : length(speakers(u).idx(:, 1))
+                    timeIndices = getTimeForIdx(obj, [speakers(u).idx(i,1), speakers(u).idx(i,2)], fs);
+                    x = [timeIndices(1), timeIndices(2), timeIndices(2), timeIndices(1)];
+                    y = [y_min, y_min, y_max, y_max];
+                    
+                    patch(x, y, color, 'FaceAlpha', 0.3);
+                end
+            end
+            
+            % Apply legend for colored regions
+            ls = [];
+            for c = 1 : length(unique_speakers)
+                eval(['l', num2str(c), ' = plot([NaN,NaN], speaker_colors(', num2str(c), '));']);
+                eval(['ls = [ls, l', num2str(c), '];']);
+            end
+            legend(ls, unique_speakers)
         end
     end
 end
