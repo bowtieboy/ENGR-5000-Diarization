@@ -60,7 +60,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             % Pre-allocate the windows matrix
             window_delta = window_size - window_overlap;
-            window_amount = floor(length(audio) / window_delta) - 1;
+            window_amount = floor(length(audio) / window_delta);
             
             % Check to make sure the clip is long enough to break into
             % windows. If not, return empty array.
@@ -71,9 +71,20 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             windows = zeros(window_amount, window_size);
             
-            % Assign the values of the windows matrix
-            windows(1, :) = audio(1 : window_size);
+            % Check to see if there is enough audio for a single window. If
+            % not, pad the end with zeroes
+            if (length(audio) < window_size)
+                windows(1, 1 : length(audio)) = audio(1 : end);
+            % If not, assign the values of the windows matrix
+            else
+                windows(1, :) = audio(1 : window_size); 
+            end
             for row = 2 : window_amount
+                % Check to see if the window is too large
+                if ((window_size + (window_delta * (row - 1)) - 1) > length(audio))
+                    windows(row, 1 : length(audio(window_delta * (row - 1) : end))) = audio(window_delta * (row - 1) : end);
+                    continue;
+                end
                 windows(row, :) = audio(window_delta * (row - 1) : window_size + (window_delta * (row - 1)) - 1);
             end
             
@@ -96,6 +107,8 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end            
         end
         
+        % Returns the of the processed speech vector for the data
+        % attributed to each speaker
         function speaker_indices = getSpeechSpeakerIndices(~, fs, windows, window_size, window_overlap, speakers)
                         
             % Convert window size and overlamp to sample domain
@@ -129,6 +142,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 start_idx = window_indices(s, 1);
                 speaker_changes = speaker_changes + 1;
             end
+            
+            % Attribute the last of the data to the current speaker
+            speaker_indices(speaker_changes).idx = [start_idx, window_indices(end, 2)];
+            speaker_indices(speaker_changes).speaker = current_speaker;
         end
         
         function original_speaker_indices = getOriginalSpeakerIndices(~, speech_indices, speech_speaker_indices)
@@ -238,8 +255,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Check if name already exists
             name_exists = 1;
             for names = 1 : length(obj.speaker_names)
-                if (strcmp(obj.d_vectors(names).name, name))
+                if (strcmp(char(obj.speaker_names(names)), name))
                     name_exists = 0;
+                    break;
                 end
             end
             assert(name_exists, 'User already exists in the database.')
