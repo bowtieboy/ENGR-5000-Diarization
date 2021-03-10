@@ -120,7 +120,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             window_indices = zeros(length(windows(:, 1)), 2);
             window_indices(1, :) = [1, length(windows(1, :))];
             for w = 2 : length(windows(:, 1))
-                window_indices(w, :) = [window_delta * (w - 1), window_size + (window_delta * (w - 1)) - 1];
+                window_indices(w, :) = [window_delta * (w - 1), window_size + (window_delta * (w - 1))];
             end
             
             % Attribute the indices to speakers
@@ -174,7 +174,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     if (speaker_change > length(speech_speaker_indices))
                         return;
                     end
-                    start_idx = start_idx + leftover_samples - (speech_speaker_indices(speaker_change - 1).idx(2) - speech_speaker_indices(speaker_change).idx(1));
+                    start_idx = start_idx + leftover_samples + 1;
                     delta_idx = speech_indices(i, 2) - start_idx;
                     leftover_samples = 0;
                 end
@@ -202,7 +202,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     if (speaker_change > length(speech_speaker_indices))
                         return;
                     end
-                    start_idx = start_idx + (speech_speaker_indices(speaker_change).idx(2) - speech_speaker_indices(speaker_change).idx(1)) - (speech_speaker_indices(speaker_change - 1).idx(2) - speech_speaker_indices(speaker_change).idx(1)) + 1;
+                    start_idx = start_idx + (speech_speaker_indices(speaker_change - 1).idx(2) - speech_speaker_indices(speaker_change - 1).idx(1)) + 1;
                     delta_idx = speech_indices(i, 2) - start_idx;
                 end
                 
