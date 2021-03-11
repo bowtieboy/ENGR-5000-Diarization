@@ -1,3 +1,7 @@
+% TODO:
+%   1) If transition of speaker occurs, note the window inbetween the two
+%   speakers to check or overlapping speech.
+
 classdef (ConstructOnLoad) SpeechProcessing < handle
     
     % Private properties
@@ -216,12 +220,35 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end
         end
         
+        % Returns the time that a point was sampled at when given the index
+        % and sample rate
         function timeIndices = getTimeForIdx(~, idx, fs)
             
             timeIndices = zeros(1, length(idx));
             for i = 1 : length(idx)
                 timeIndices(i) = idx(i) / fs;
             end
+        end
+        
+        % Checks for overlapping speakers and corrects the labels
+        function new_labels = checkOverlapping(~, labels)
+            
+            % Check for transistions in speakers
+            current_speaker = string(labels(1));
+            for s = 2 : length(labels)
+                if (~strcmp(current_speaker, string(labels(s))))
+                    % If the transition happens because of an unknown
+                    % speaker, ignore it for now
+                    if (strcmp("Unknown", string(labels(s))))
+                        continue;
+                    end
+                    labels(s - 1) = cellstr("Possible Overlap");
+                    current_speaker = string(labels(s));
+                end
+            end
+            
+            % Return new array
+            new_labels = labels;
         end
     end
     
@@ -353,7 +380,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 observations(e, :) = speaker_embeddings(e, :);
             end
             % Use KNN to classify embeddings
-            [labels, score, cost] = predict(obj.speaker_classifier, observations);
+            [labels, score, ~] = predict(obj.speaker_classifier, observations);
             
             % Apply threshold to the estimated speakers to cutoff any below
             % the requirement
@@ -364,6 +391,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     labels(s) = cellstr('Unknown');
                 end
             end
+            
+            % Check for overlapping in windows
+            labels = checkOverlapping(obj, labels);
                         
             % Get the indices of the original audio clip that each speaker
             % is attributed to
