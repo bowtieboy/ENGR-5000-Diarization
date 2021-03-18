@@ -1,6 +1,9 @@
 % TODO:
-%   1) If transition of speaker occurs, note the window inbetween the two
-%   speakers to check or overlapping speech.
+%   1) Fix bug with probability matrix not lining up with speaker names
+%   order
+%   2) Some speech not being calculated (when it is determined to be speech
+%   by detectSpeech()
+
 
 classdef (ConstructOnLoad) SpeechProcessing < handle
     
@@ -12,7 +15,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         trained_speakers = 0;
         embedding_length = 128;
         window_size = 1; % seconds
-        window_overlap = 0.5 % seconds
+        window_overlap = 0; % seconds
         speaker_classifier;
         speaker_names = {};
     end
@@ -51,20 +54,15 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         
         % Break the desired audio stream into windows of given size and
         % overlap
-        function windows = makeAudioWindows(~, audio, fs, window_size, window_overlap)
-            
-            % If overlap is set to window length, change it to 0
-            if (window_size <= window_overlap)
-                window_overlap = 0;
-            end
+        function windows = makeAudioWindows(obj, audio, fs)
             
             % Convert window size and overlamp to sample domain
-            window_size = window_size * fs;
-            window_overlap = window_overlap * fs;
+            window_size_samples = obj.window_size * fs;
+            window_overlap_samples = obj.window_overlap * fs;
             
             % Pre-allocate the windows matrix
-            window_delta = window_size - window_overlap;
-            window_amount = floor(length(audio) / window_delta);
+            window_delta_samples = window_size_samples - window_overlap_samples;
+            window_amount = ceil(length(audio) / window_delta_samples);
             
             % Check to make sure the clip is long enough to break into
             % windows. If not, return empty array.
@@ -73,30 +71,30 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 return;
             end
             
-            windows = zeros(window_amount, window_size);
+            windows = zeros(window_amount, window_size_samples);
             
             % Check to see if there is enough audio for a single window. If
             % not, pad the end with zeroes
-            if (length(audio) < window_size)
+            if (length(audio) < window_size_samples)
                 windows(1, 1 : length(audio)) = audio(1 : end);
             % If not, assign the values of the windows matrix
             else
-                windows(1, :) = audio(1 : window_size); 
+                windows(1, :) = audio(1 : window_size_samples); 
             end
             for row = 2 : window_amount
                 % Check to see if the window is too large
-                if ((window_size + (window_delta * (row - 1)) - 1) > length(audio))
-                    windows(row, 1 : length(audio(window_delta * (row - 1) : end))) = audio(window_delta * (row - 1) : end);
+                if ((window_size_samples + (window_delta_samples * (row - 1)) - 1) > length(audio))
+                    windows(row, 1 : length(audio(window_delta_samples * (row - 1) : end))) = audio(window_delta_samples * (row - 1) : end);
                     continue;
                 end
-                windows(row, :) = audio(window_delta * (row - 1) : window_size + (window_delta * (row - 1)) - 1);
+                windows(row, :) = audio(window_delta_samples * (row - 1) : window_size_samples + (window_delta_samples * (row - 1)) - 1);
             end
             
         end
         
         function embeddings = getEmbeddings(obj, audio, fs)
             % Grab audio windows that will be processed
-            windows = makeAudioWindows(obj, audio, fs, 1, 0.5);
+            windows = makeAudioWindows(obj, audio, fs);
             
             % If window is empty, return nothing
             if (isempty(windows))
@@ -113,18 +111,18 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         
         % Returns the of the processed speech vector for the data
         % attributed to each speaker
-        function speaker_indices = getSpeechSpeakerIndices(~, fs, windows, window_size, window_overlap, speakers)
+        function speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, speakers)
                         
             % Convert window size and overlamp to sample domain
-            window_size = window_size * fs;
-            window_overlap = window_overlap * fs;
-            window_delta = window_size - window_overlap;
+            window_size_samples = obj.window_size * fs;
+            window_overlap_samples = obj.window_overlap * fs;
+            window_delta_samples = window_size_samples - window_overlap_samples;
             
             % Find the indices attributed to each window
             window_indices = zeros(length(windows(:, 1)), 2);
             window_indices(1, :) = [1, length(windows(1, :))];
             for w = 2 : length(windows(:, 1))
-                window_indices(w, :) = [window_delta * (w - 1), window_size + (window_delta * (w - 1))];
+                window_indices(w, :) = [window_delta_samples * (w - 1) + 1, window_overlap_samples + (window_delta_samples * w)];
             end
             
             % Attribute the indices to speakers
@@ -173,9 +171,13 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 if ((leftover_samples > 0) && (delta_idx > leftover_samples))
                     original_speaker_indices(speaker_change).idx = [original_speaker_indices(speaker_change).idx; [start_idx, start_idx + leftover_samples]];
                     speaker_change = speaker_change + 1;
-                    % If all the speakers have been calculated, exit the
+                    % If all the speakers have been calculated, attribute
+                    % the rest of the points to the speaker and exit the
                     % function
                     if (speaker_change > length(speech_speaker_indices))
+%                         for w = i : length(speech_indices(:, 1))
+%                             original_speaker_indices(
+%                         end
                         return;
                     end
                     start_idx = start_idx + leftover_samples + 1;
@@ -242,8 +244,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     if (strcmp("Unknown", string(labels(s))))
                         continue;
                     end
-                    labels(s - 1) = cellstr("Possible Overlap");
                     current_speaker = string(labels(s));
+                    labels(s - 2) = cellstr("Transition Point Within Bounds");
+                    labels(s - 1) = cellstr("Transition Point Within Bounds");
+                    labels(s) = cellstr("Transition Point Within Bounds");
                 end
             end
             
@@ -259,11 +263,11 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         % this so it is included when the object is created.
         function obj = SpeechProcessing()
             
-            % Check to see if speechFilter can be loaded
+            % Check to see if speech_filter can be loaded
             try
-                obj.bandpass_filter = load('speechFilter.mat').speechFilter;
+                obj.bandpass_filter = load('speech_filter.mat').speech_filter;
             catch
-                assert(0, 'Can not find speechFilter.mat. Is it in this directory?');
+                assert(0, 'Can not find speech_filter.mat. Is it in this directory?');
             end
             
             % Check to see if the path to vggish exists
@@ -275,10 +279,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         end
         
         function memorizeSpeaker(obj, speaker_audio, fs, name)
-            
-            % Ensure there are at least 4 audio clips
-            assert(length(speaker_audio) >= 4, 'Not enough audio clips in the struct. Need at least 4.')
-            
+                        
             % Check if name already exists
             name_exists = 1;
             for names = 1 : length(obj.speaker_names)
@@ -394,11 +395,14 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             % Check for overlapping in windows
             labels = checkOverlapping(obj, labels);
+            
+            % Check for multiple speakers in overlapping sections
+            %multiple_speaker_idx = checkForMultiSpeakers(audio_window, fs);
                         
             % Get the indices of the original audio clip that each speaker
             % is attributed to
-            windows = makeAudioWindows(obj, processed_audio, fs, 1, 0.5);
-            speech_speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, 1, 0.5, labels);
+            windows = makeAudioWindows(obj, processed_audio, fs);
+            speech_speaker_indices = getSpeechSpeakerIndices(obj, fs, windows, labels);
             original_speaker_indices = getOriginalSpeakerIndices(obj, speech_indices, speech_speaker_indices);
             
             % Return similarities if requested
@@ -466,8 +470,11 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 
                 % Determine the speaker color
                 for c = 1 : length(unique_speakers)
+                    % Compare current box with unique speaker to find the
+                    % correct color
                     if (strcmp(speakers(u).speaker, string(unique_speakers(c))))
                         color = speaker_colors(c);
+                        break;
                     end
                 end
                 
