@@ -32,7 +32,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         
         % Apply the audio pre-processing to the specified entry
         function [speech_vector, speech_indices] = preProcessAudio(obj, audio, fs)
-            
+                        
             % Apply bandpass filter
             data = obj.bandpass_filter.filter(audio);
             
@@ -175,9 +175,6 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     % the rest of the points to the speaker and exit the
                     % function
                     if (speaker_change > length(speech_speaker_indices))
-%                         for w = i : length(speech_indices(:, 1))
-%                             original_speaker_indices(
-%                         end
                         return;
                     end
                     start_idx = start_idx + leftover_samples + 1;
@@ -254,6 +251,20 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Return new array
             new_labels = labels;
         end
+        
+        function resampled_audio = resampleAudio(~, audio, fs, desired_rate)
+            
+            % Ensure the desired rate is lower than the original
+            assert(fs > desired_rate, 'New sample rate must be lower than the original.');
+            
+            % Calculate numerator and denominator to achieve desired sample
+            % rate
+            ratio = desired_rate / fs;
+            [num, denom] = rat(ratio);
+            
+            % Resample audio
+            resampled_audio = resample(audio, num, denom);
+        end
     end
     
     % Public methods
@@ -293,6 +304,17 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % If name doesn't exist, add it to the database
             obj.speaker_names{length(obj.speaker_names) + 1} = name;
             
+            % Make sure audio is sampled at the correct frequency, and if
+            % not resample it
+            if (fs > 16000)
+                disp(['Re-sampling ', num2str(length(speaker_audio)) ,' audio clips.']);
+                for clips = 1 : length(speaker_audio)
+                    disp(['Re-sampling clip #', num2str(clips)]);
+                    speaker_audio(clips).audio = resampleAudio(obj, speaker_audio(clips).audio, fs, 16000);
+                end
+                fs = 16000;
+            end
+            
             % Pre-process audio
             disp(['Pre-processing ', num2str(length(speaker_audio)) ,' audio clips.']);
             processed_audio = struct();
@@ -308,17 +330,17 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             for speech = 1 : length(processed_audio)
                 disp(['Calculating embedding for clip ', num2str(speech), '.']);
                 current_embedding = getEmbeddings(obj, processed_audio(speech).audio, fs);
-                
+
                 % If the current embedding is empty, do not add it to the
                 % struct.
                 if (isempty(current_embedding))
                     disp(['Clip ', num2str(speech), ' was not long enough to be diarized.']);
                     continue;
                 end
-                
+
                 speaker_embeddings(index).emb = current_embedding;
                 index = index + 1;
-                
+
             end
             
             % Store embeddings
@@ -359,6 +381,14 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             % Make sure audio clip is long enough, otherwise error out
             assert((length(audio) / fs) >= 1, 'Audio clip is not long enough to diarize.');
+            
+            % Make sure audio is sampled at the correct frequency, and if
+            % not resample it
+            if (fs > 16000)
+                disp('Re-sampling audio clip.');
+                audio = resampleAudio(obj, audio, fs, 16000);
+                fs = 16000;
+            end
             
             % Pre-process audio
             disp('Pre-processing audio clip.');
