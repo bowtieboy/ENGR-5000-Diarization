@@ -9,15 +9,26 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
     
     % Private properties
     properties (SetAccess = private)
+        % The preprocessing speech filter
         bandpass_filter
+        % All fitted d_vectors from training
         d_vectors = struct();
+        % Count of all d_vectors
         d_vectors_total = 0;
+        % Count of all trained speakers
         trained_speakers = 0;
+        % How long the audio embedding is
         embedding_length = 128;
+        % Length of audio window
         window_size = 1; % seconds
+        % Length of audio overlap
         window_overlap = 0; % seconds
+        % kNN classifier model
         speaker_classifier;
+        % List of all trained speakers
         speaker_names = {};
+        % Google speech-to-text API
+        speechObject;
     end
     
     % Private methods
@@ -301,6 +312,15 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             catch
                 assert(0, 'Can not find path to vggish. Is it in this directory?')
             end
+            
+            % Check to see if the path to speech2text exists
+            try
+                addpath('./speech2text');
+                obj.speechObject = speechClient('Google','languageCode','en-US',...
+                    'sampleRateHertz',16000,'enableWordTimeOffsets',true);
+            catch
+                assert(0, 'Can not find path to speech2text. Is it in this directory?')
+            end
         end
         
         function memorizeSpeaker(obj, speaker_audio, fs, name)
@@ -377,7 +397,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         end
         
         % Diarize the given audio clip
-        function [original_speaker_indices, return_similarities, speaker_names] = diarizeAudioClip(obj, audio, fs, threshold)
+        function [original_speaker_indices, return_similarities, speaker_names, preprocessed_audio] = diarizeAudioClip(obj, audio, fs, threshold)
             
             % Make sure the model has been trained on at least one speaker
             assert(~isempty(obj.speaker_classifier), 'No speakers have been trained on this model.')
@@ -427,6 +447,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             if (nargout > 2)
                 speaker_names = obj.speaker_names;
             end
+            if (nargout > 3)
+                preprocessed_audio = processed_audio;
+            end
             
         end
         
@@ -458,7 +481,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         function visualizeResults(obj, audio, fs, speakers)
             
             % Re-sample the audio to line it with the model
-            audio = resampleAudio(obj, audio, fs, 16000);
+            if (fs > 16000)
+                audio = resampleAudio(obj, audio, fs, 16000);
+                fs = 16000;
+            end
             
             % Create time vector for plotting
             time = linspace(0, length(audio) / fs, length(audio));
@@ -497,8 +523,8 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 end
                 
                 for i = 1 : length(speakers(u).idx(:, 1))
-                    timeIndices = getTimeForIdx(obj, [speakers(u).idx(i,1), speakers(u).idx(i,2)], fs);
-                    x = [timeIndices(1), timeIndices(2), timeIndices(2), timeIndices(1)];
+                    time_indices = getTimeForIdx(obj, [speakers(u).idx(i,1), speakers(u).idx(i,2)], fs);
+                    x = [time_indices(1), time_indices(2), time_indices(2), time_indices(1)];
                     y = [y_min, y_min, y_max, y_max];
                     
                     patch(x, y, color, 'FaceAlpha', 0.3);
@@ -512,6 +538,89 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 eval(['ls = [ls, l', num2str(c), '];']);
             end
             legend(ls, unique_speakers)
+        end
+        
+        function [original_speaker_times, original_speaker_indices] = annotateAudio(obj, audio, fs, threshold)
+            
+            % Diarize the audio segment to determine who spoke when
+            [original_speaker_indices, ~, ~] = diarizeAudioClip(obj, audio, fs, threshold);
+            
+            % Check to make sure the sample rate is correct
+            if (fs > 16000)
+                audio = resampleAudio(obj, audio, fs, 16000);
+                fs = 16000;
+            end
+            
+            % Perform speech-to-text on the audio
+            disp('Performing Speech-to-text cloud computing.');
+            table_out = speech2text(obj.speechObject,audio,fs);
+            time_stamps = table_out.TimeStamps{1};
+            
+            % Convert indices to time stamps
+            original_speaker_times = struct();
+            for s = 1 : length(original_speaker_indices)
+                % Initialize variables associated with each speaker
+                original_speaker_times(s).speaker = original_speaker_indices(s).speaker;
+                original_speaker_times(s).times = [];
+                original_speaker_times(s).word_count = 0;
+                original_speaker_times(s).words = string();
+                for i = 1 : length(original_speaker_indices(s).idx(:, 1))
+                    time_idx = original_speaker_indices(s).idx(i, :);
+                    speaker_times = getTimeForIdx(obj, [time_idx(1), time_idx(2)], fs);
+                    original_speaker_times(s).times = [original_speaker_times(s).times; speaker_times];
+                end
+            end
+            
+            % Loop through word timings to check who said each word
+            for w = 1 : length(time_stamps.startTime)
+                % Get the time window for the word
+                word_start = time_stamps.startTime(w);
+                word_end = time_stamps.endTime(w);
+                % Convert from cell to string
+                word_start = word_start{1};
+                word_end = word_end{1};
+                % Remove unit from string
+                word_start = erase(word_start, 's');
+                word_end = erase(word_end, 's');
+                % Convert from string to double
+                word_start = str2double(word_start);
+                word_end = str2double(word_end);
+                % Grab the current word
+                current_word = time_stamps.word(w);
+                current_word = current_word{1};
+                word_attributed = false;
+                
+                % Determine who said the word by comparing the time the
+                % word was said to who was speaking at that time
+                for s = 1 : length(original_speaker_times)
+                    for t = 1 : length(original_speaker_times(s).times(:, 1))
+                        % Determine the start and end time for the current
+                        % speech segment
+                        speaker_start = original_speaker_times(s).times(t, 1);
+                        speaker_end = original_speaker_times(s).times(t, 2);
+                        % If the words fall into this segment, attribute
+                        % the word to the speaker
+                        if ((speaker_start >= word_start) && (speaker_end >= word_end))
+                            original_speaker_times(s).word_count = original_speaker_times(s).word_count + 1;
+                            % If first word in list, replace empty entry
+                            if (original_speaker_times(s).word_count == 1)
+                                original_speaker_times(s).words(1) = current_word;
+                                word_attributed = true;
+                                break;
+                            end
+                            % Otherwise, append to list
+                            original_speaker_times(s).words = [original_speaker_times(s).words; current_word];
+                            word_attributed = true;
+                            break;
+                        end
+                    end
+                    
+                    % If the speaker was already found, stop searching
+                    if (word_attributed)
+                        break;
+                    end
+                end
+            end
         end
     end
 end

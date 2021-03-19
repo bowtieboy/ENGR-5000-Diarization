@@ -21,5 +21,9 @@ audio_stream = audio_stream.';
 
 %% Diarization Model
 
-[speakers, probability_matrix, speaker_names] = speech_processing_model.diarizeAudioClip(audio_stream, audio_freq, 0.6);
+% Create annotations
+[annotated_speakers, speakers] = speech_processing_model.annotateAudio(audio_stream, audio_freq, 0.6);
+% Visualize diarization
 speech_processing_model.visualizeResults(audio_stream, audio_freq, speakers);
+
+
