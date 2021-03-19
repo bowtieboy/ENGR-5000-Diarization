@@ -10,9 +10,9 @@ catch
 end
 %% Get audio data
 
-file = 'C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Matt\genesis 1,1-15.flac';
+file = 'C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Melanie\ieee.mp3';
 [audio, fs] = audioread(file);
-name = 'Matt Lima';
+name = 'Melanie Lima';
 
 % Display the total amount of recorded audio from this user
 total_time = length(audio) / fs;

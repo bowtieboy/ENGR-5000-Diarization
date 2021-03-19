@@ -31,7 +31,14 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         end
         
         % Apply the audio pre-processing to the specified entry
-        function [speech_vector, speech_indices] = preProcessAudio(obj, audio, fs)
+        function [speech_vector, new_fs, speech_indices] = preProcessAudio(obj, audio, fs)
+            
+            % Make sure audio is sampled at the correct frequency, and if
+            % not resample it
+            if (fs > 16000)
+                audio = resampleAudio(obj, audio, fs, 16000);
+                fs = 16000;
+            end
                         
             % Apply bandpass filter
             data = obj.bandpass_filter.filter(audio);
@@ -47,6 +54,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end
             
             if (nargout > 1)
+                new_fs = fs;
+            end
+            
+            if (nargout > 2)
                 speech_indices = speechIdx;
             end
                         
@@ -242,7 +253,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                         continue;
                     end
                     current_speaker = string(labels(s));
-                    labels(s - 2) = cellstr("Transition Point Within Bounds");
+                    if (s > 2)
+                        labels(s - 2) = cellstr("Transition Point Within Bounds");
+                    end
                     labels(s - 1) = cellstr("Transition Point Within Bounds");
                     labels(s) = cellstr("Transition Point Within Bounds");
                 end
@@ -252,6 +265,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             new_labels = labels;
         end
         
+        % Re-sample the audio vector
         function resampled_audio = resampleAudio(~, audio, fs, desired_rate)
             
             % Ensure the desired rate is lower than the original
@@ -304,23 +318,12 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % If name doesn't exist, add it to the database
             obj.speaker_names{length(obj.speaker_names) + 1} = name;
             
-            % Make sure audio is sampled at the correct frequency, and if
-            % not resample it
-            if (fs > 16000)
-                disp(['Re-sampling ', num2str(length(speaker_audio)) ,' audio clips.']);
-                for clips = 1 : length(speaker_audio)
-                    disp(['Re-sampling clip #', num2str(clips)]);
-                    speaker_audio(clips).audio = resampleAudio(obj, speaker_audio(clips).audio, fs, 16000);
-                end
-                fs = 16000;
-            end
-            
             % Pre-process audio
             disp(['Pre-processing ', num2str(length(speaker_audio)) ,' audio clips.']);
             processed_audio = struct();
             for clips = 1 : length(speaker_audio)
                 disp(['Processing clip #', num2str(clips)]);
-                processed_audio(clips).audio = preProcessAudio(obj, speaker_audio(clips).audio, fs);
+                [processed_audio(clips).audio, fs] = preProcessAudio(obj, speaker_audio(clips).audio, fs);
             end
             
             % Calculate speaker embeddings
@@ -382,36 +385,18 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Make sure audio clip is long enough, otherwise error out
             assert((length(audio) / fs) >= 1, 'Audio clip is not long enough to diarize.');
             
-            % Make sure audio is sampled at the correct frequency, and if
-            % not resample it
-            if (fs > 16000)
-                disp('Re-sampling audio clip.');
-                audio = resampleAudio(obj, audio, fs, 16000);
-                fs = 16000;
-            end
-            
             % Pre-process audio
             disp('Pre-processing audio clip.');
-            [processed_audio, speech_indices] = preProcessAudio(obj, audio, fs);
+            [processed_audio, fs, speech_indices] = preProcessAudio(obj, audio, fs);
             
             % Calculate speaker embeddings
             disp('Extracting d-vectors from audio clip.');
             speaker_embeddings = getEmbeddings(obj, processed_audio, fs);
             
             
-            % Determine the similarity
-            
-            
-            disp('Calculating the similarities between the d-vectors and recorded speakers.');
-            % Input variable
-            num_obvs = length(speaker_embeddings(:, 1));
-            num_vars = length(speaker_embeddings(1, :));
-            observations = zeros(num_obvs, num_vars);
-            for e = 1 : length(speaker_embeddings(:, 1))
-                observations(e, :) = speaker_embeddings(e, :);
-            end
             % Use KNN to classify embeddings
-            [labels, score, ~] = predict(obj.speaker_classifier, observations);
+            disp('Determining the similarities between the d-vectors and recorded speakers.');
+            [labels, score, ~] = predict(obj.speaker_classifier, speaker_embeddings);
             
             % Apply threshold to the estimated speakers to cutoff any below
             % the requirement
@@ -472,6 +457,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         
         function visualizeResults(obj, audio, fs, speakers)
             
+            % Re-sample the audio to line it with the model
+            audio = resampleAudio(obj, audio, fs, 16000);
+            
             % Create time vector for plotting
             time = linspace(0, length(audio) / fs, length(audio));
             
@@ -481,7 +469,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Plot audio signal over time
             plot(time, audio, 'k');
             xlabel('Time (s)');
-            ylabel('Amplitude (?)');
+            ylabel('Amplitude');
             title('Diarization of Audio Signal');
             hold on;
             
