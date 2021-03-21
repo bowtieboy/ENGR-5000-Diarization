@@ -1,9 +1,6 @@
 % TODO:
-%   1) Fix bug with probability matrix not lining up with speaker names
-%   order
-%   2) Some speech not being calculated (when it is determined to be speech
-%   by detectSpeech()
-
+%   Use Google's diarization to refine speaker identification points and
+%   words
 
 classdef (ConstructOnLoad) SpeechProcessing < handle
     
@@ -29,6 +26,8 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         speaker_names = {};
         % Google speech-to-text API
         speechObject;
+        % Expands window for checking who said which word
+        time_shift = 0.2;
     end
     
     % Private methods
@@ -42,7 +41,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
         end
         
         % Apply the audio pre-processing to the specified entry
-        function [speech_vector, new_fs, speech_indices] = preProcessAudio(obj, audio, fs)
+        function [speech_vector, new_fs, speech_indices, norm_audio] = preProcessAudio(obj, audio, fs)
             
             % Make sure audio is sampled at the correct frequency, and if
             % not resample it
@@ -50,12 +49,12 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 audio = resampleAudio(obj, audio, fs, 16000);
                 fs = 16000;
             end
+            
+            % Normalize audio
+            audio = (audio - min(audio)) ./ (max(audio) - min(audio));
                         
             % Apply bandpass filter
             data = obj.bandpass_filter.filter(audio);
-            
-            % Normalize audio
-            data = data ./ norm(data);
             
             % Cut out silences
             speechIdx = detectSpeech(data.', fs);
@@ -70,6 +69,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
             if (nargout > 2)
                 speech_indices = speechIdx;
+            end
+            
+            if (nargout > 3)
+                norm_audio = data;
             end
                         
         end
@@ -317,7 +320,8 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             try
                 addpath('./speech2text');
                 obj.speechObject = speechClient('Google','languageCode','en-US',...
-                    'sampleRateHertz',16000,'enableWordTimeOffsets',true);
+                    'sampleRateHertz',16000,'enableWordTimeOffsets',true,...
+                    'enableSpeakerDiarization',true);
             catch
                 assert(0, 'Can not find path to speech2text. Is it in this directory?')
             end
@@ -429,7 +433,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end
             
             % Check for overlapping in windows
-            labels = checkOverlapping(obj, labels);
+            % labels = checkOverlapping(obj, labels);
             
             % Check for multiple speakers in overlapping sections
             %multiple_speaker_idx = checkForMultiSpeakers(audio_window, fs);
@@ -545,16 +549,16 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Diarize the audio segment to determine who spoke when
             [original_speaker_indices, ~, ~] = diarizeAudioClip(obj, audio, fs, threshold);
             
-            % Check to make sure the sample rate is correct
-            if (fs > 16000)
-                audio = resampleAudio(obj, audio, fs, 16000);
-                fs = 16000;
-            end
+            % Pre-process audio
+            [~, new_fs, ~, audio] = preProcessAudio(obj, audio, fs);
+            fs = new_fs;
             
             % Perform speech-to-text on the audio
             disp('Performing Speech-to-text cloud computing.');
             table_out = speech2text(obj.speechObject,audio,fs);
-            time_stamps = table_out.TimeStamps{1};
+            
+            % Determine number of unique speakers and assign each a color
+            unique_speakers = determineUniqueSpeakers(obj, original_speaker_indices);
             
             % Convert indices to time stamps
             original_speaker_times = struct();
@@ -564,6 +568,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 original_speaker_times(s).times = [];
                 original_speaker_times(s).word_count = 0;
                 original_speaker_times(s).words = string();
+                original_speaker_times(s).word_times = [];
                 for i = 1 : length(original_speaker_indices(s).idx(:, 1))
                     time_idx = original_speaker_indices(s).idx(i, :);
                     speaker_times = getTimeForIdx(obj, [time_idx(1), time_idx(2)], fs);
@@ -571,54 +576,78 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 end
             end
             
-            % Loop through word timings to check who said each word
-            for w = 1 : length(time_stamps.startTime)
-                % Get the time window for the word
-                word_start = time_stamps.startTime(w);
-                word_end = time_stamps.endTime(w);
-                % Convert from cell to string
-                word_start = word_start{1};
-                word_end = word_end{1};
-                % Remove unit from string
-                word_start = erase(word_start, 's');
-                word_end = erase(word_end, 's');
-                % Convert from string to double
-                word_start = str2double(word_start);
-                word_end = str2double(word_end);
-                % Grab the current word
-                current_word = time_stamps.word(w);
-                current_word = current_word{1};
-                word_attributed = false;
-                
-                % Determine who said the word by comparing the time the
-                % word was said to who was speaking at that time
-                for s = 1 : length(original_speaker_times)
-                    for t = 1 : length(original_speaker_times(s).times(:, 1))
-                        % Determine the start and end time for the current
-                        % speech segment
-                        speaker_start = original_speaker_times(s).times(t, 1);
-                        speaker_end = original_speaker_times(s).times(t, 2);
-                        % If the words fall into this segment, attribute
-                        % the word to the speaker
-                        if ((speaker_start >= word_start) && (speaker_end >= word_end))
-                            original_speaker_times(s).word_count = original_speaker_times(s).word_count + 1;
-                            % If first word in list, replace empty entry
-                            if (original_speaker_times(s).word_count == 1)
-                                original_speaker_times(s).words(1) = current_word;
+            % Loop through the tables of speakers identified by Google
+            for table = 1 : height(table_out)
+                time_stamps = table_out.TimeStamps{table};
+                % Reset all speaker points 
+                speaker_points = zeros(height(time_stamps), length(unique_speakers));
+                % Loop through word timings to check who said each word
+                for w = 1 : length(time_stamps.startTime)
+                    % Get the time window for the word
+                    word_start = time_stamps.startTime(w);
+                    word_end = time_stamps.endTime(w);
+                    % Convert from cell to string
+                    word_start = word_start{1};
+                    word_end = word_end{1};
+                    % Remove unit from string
+                    word_start = erase(word_start, 's');
+                    word_end = erase(word_end, 's');
+                    % Convert from string to double
+                    word_start = str2double(word_start);
+                    word_end = str2double(word_end);
+                    % Average time to find middle of word
+                    word_time = ((word_start + word_end) / 2);
+                    % Grab the current word
+                    current_word = time_stamps.word(w);
+                    current_word = current_word{1};
+                    word_attributed = false;
+
+                    % Determine who said the word by comparing the time the
+                    % word was said to who was speaking at that time
+                    for s = 1 : length(original_speaker_times)
+                        % Set the column for the speaker point to be
+                        % attriubted
+                        for c = 1 : length(unique_speakers)
+                            if (strcmp(original_speaker_times(s).speaker, unique_speakers(c)))
+                                speaker_col = c;
+                            end
+                        end
+                        for t = 1 : length(original_speaker_times(s).times(:, 1))
+                            % Determine the start and end time for the current
+                            % speech segment
+                            speaker_start = original_speaker_times(s).times(t, 1);
+                            speaker_end = original_speaker_times(s).times(t, 2);
+                            % If the words fall into this segment, attribute
+                            % the word to the speaker
+                            if ((speaker_start <= (word_time + obj.time_shift)) && (speaker_end >= (word_time - obj.time_shift)))
+                                original_speaker_times(s).word_count = original_speaker_times(s).word_count + 1;
+                                % If first word in list, replace empty entry
+                                if (original_speaker_times(s).word_count == 1)
+                                    original_speaker_times(s).words(1) = current_word;
+                                    original_speaker_times(s).word_times(1) = word_time;
+                                    word_attributed = true;
+                                    break;
+                                end
+                                % Otherwise, append to list
+                                original_speaker_times(s).words = [original_speaker_times(s).words; current_word];
+                                original_speaker_times(s).word_times = [original_speaker_times(s).word_times; word_time];
                                 word_attributed = true;
+                                % Assign point to user for this given
+                                % speech segment
+                                speaker_points(w, speaker_col) = 1;
                                 break;
                             end
-                            % Otherwise, append to list
-                            original_speaker_times(s).words = [original_speaker_times(s).words; current_word];
-                            word_attributed = true;
+                        end
+
+                        % If the speaker was already found, stop searching
+                        if (word_attributed)
                             break;
                         end
                     end
+                    % Use Google's diarization to assume seperation point
+                    % for words and modify the speakers
                     
-                    % If the speaker was already found, stop searching
-                    if (word_attributed)
-                        break;
-                    end
+                    
                 end
             end
         end

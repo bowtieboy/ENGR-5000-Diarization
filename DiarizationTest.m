@@ -15,7 +15,7 @@ end
 % [audio_stream, audio_freq, sepeartion_point] = TwoSpeakerCombiner(file1, file2);
 
 % Real speakers
-file = "C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Evaluation\matt1.mp3";
+file = "C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Evaluation\matt_and_mel.mp3";
 [audio_stream, audio_freq] = audioread(file);
 audio_stream = audio_stream.';
 
