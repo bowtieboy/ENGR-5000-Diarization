@@ -254,6 +254,15 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             end
         end
         
+        % Returns the index that a point was sampled at when given the time
+        % and sample rate
+        function vectorIndices = getIdxForTime(~, time, fs)
+            vectorIndices = zeros(1, length(time));
+            for i = 1 : length(time)
+                vectorIndices(i) = time(i) * fs;
+            end
+        end
+        
         % Checks for overlapping speakers and corrects the labels
         function new_labels = checkOverlapping(~, labels)
             
@@ -432,9 +441,6 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 end
             end
             
-            % Check for overlapping in windows
-            % labels = checkOverlapping(obj, labels);
-            
             % Check for multiple speakers in overlapping sections
             %multiple_speaker_idx = checkForMultiSpeakers(audio_window, fs);
                         
@@ -482,7 +488,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             
         end
         
-        function visualizeResults(obj, audio, fs, speakers)
+        function visualizeResults(obj, audio, fs, speakers, uiax)
             
             % Re-sample the audio to line it with the model
             if (fs > 16000)
@@ -493,11 +499,21 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Create time vector for plotting
             time = linspace(0, length(audio) / fs, length(audio));
             
+            % Define min and max for squares
             y_max = max(audio);
             y_min = min(audio);
             
+            % Create new axes if none is given
+            fig = uifigure();
+            if (nargin > 4)
+                ax = uiax;
+            else
+                ax = uiaxes(fig);
+            end
+            
+            
             % Plot audio signal over time
-            plot(time, audio, 'k');
+            plot(ax, time, audio, 'k');
             xlabel('Time (s)');
             ylabel('Amplitude');
             title('Diarization of Audio Signal');
@@ -526,12 +542,12 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     end
                 end
                 
-                for i = 1 : length(speakers(u).idx(:, 1))
-                    time_indices = getTimeForIdx(obj, [speakers(u).idx(i,1), speakers(u).idx(i,2)], fs);
+                for i = 1 : length(speakers(u).times(:, 1))
+                    time_indices = speakers(u).times(i, :);
                     x = [time_indices(1), time_indices(2), time_indices(2), time_indices(1)];
                     y = [y_min, y_min, y_max, y_max];
                     
-                    patch(x, y, color, 'FaceAlpha', 0.3);
+                    patch(ax, x, y, color, 'FaceAlpha', 0.3);
                 end
             end
             
@@ -544,7 +560,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             legend(ls, unique_speakers)
         end
         
-        function [original_speaker_times, original_speaker_indices] = annotateAudio(obj, audio, fs, threshold)
+        function [true_speakers] = annotateAudio(obj, audio, fs, threshold)
             
             % Diarize the audio segment to determine who spoke when
             [original_speaker_indices, ~, ~] = diarizeAudioClip(obj, audio, fs, threshold);
@@ -566,8 +582,6 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 % Initialize variables associated with each speaker
                 original_speaker_times(s).speaker = original_speaker_indices(s).speaker;
                 original_speaker_times(s).times = [];
-                original_speaker_times(s).word_count = 0;
-                original_speaker_times(s).words = string();
                 original_speaker_times(s).word_times = [];
                 for i = 1 : length(original_speaker_indices(s).idx(:, 1))
                     time_idx = original_speaker_indices(s).idx(i, :);
@@ -576,11 +590,32 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 end
             end
             
+            % Combine entries of speakers that occured more than once
+            concat_speaker_times = struct();
+            for unique = 1 : length(unique_speakers)
+                times = [];
+                for speaker = 1 : length(original_speaker_times)
+                    if (strcmp(unique_speakers(unique), original_speaker_times(speaker).speaker))
+                        times = [times; original_speaker_times(speaker).times];
+                    end
+                end
+                concat_speaker_times(unique).speaker = string(unique_speakers(unique));
+                concat_speaker_times(unique).times = times;
+                concat_speaker_times(unique).word_times = [];
+                concat_speaker_times(unique).idx = [];
+            end
+            
+            % Set previous speaker variable to zero for initialization
+            previous_speaker = 0;
             % Loop through the tables of speakers identified by Google
             for table = 1 : height(table_out)
                 time_stamps = table_out.TimeStamps{table};
                 % Reset all speaker points 
                 speaker_points = zeros(height(time_stamps), length(unique_speakers));
+                % Empty word list
+                word_list = string();
+                % Empty word timings list
+                word_timings = zeros(length(time_stamps.startTime), 2);
                 % Loop through word timings to check who said each word
                 for w = 1 : length(time_stamps.startTime)
                     % Get the time window for the word
@@ -595,46 +630,44 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     % Convert from string to double
                     word_start = str2double(word_start);
                     word_end = str2double(word_end);
+                    % Store word timings as vector
+                    current_word_timings = [word_start, word_end];
+                    % Append timings to overall list
+                    word_timings(w, :) = current_word_timings;
                     % Average time to find middle of word
                     word_time = ((word_start + word_end) / 2);
                     % Grab the current word
                     current_word = time_stamps.word(w);
                     current_word = current_word{1};
+                    % If first word in list, replace empty entry
+                    if (w == 1)
+                        word_list = string(current_word);
+                    else
+                        % Append current word to list
+                        word_list = [word_list; current_word];
+                    end
                     word_attributed = false;
 
                     % Determine who said the word by comparing the time the
                     % word was said to who was speaking at that time
-                    for s = 1 : length(original_speaker_times)
+                    for s = 1 : length(concat_speaker_times)
                         % Set the column for the speaker point to be
                         % attriubted
                         for c = 1 : length(unique_speakers)
-                            if (strcmp(original_speaker_times(s).speaker, unique_speakers(c)))
+                            if (strcmp(concat_speaker_times(s).speaker, unique_speakers(c)))
                                 speaker_col = c;
                             end
                         end
-                        for t = 1 : length(original_speaker_times(s).times(:, 1))
+                        for t = 1 : length(concat_speaker_times(s).times(:, 1))
                             % Determine the start and end time for the current
                             % speech segment
-                            speaker_start = original_speaker_times(s).times(t, 1);
-                            speaker_end = original_speaker_times(s).times(t, 2);
+                            speaker_start = concat_speaker_times(s).times(t, 1);
+                            speaker_end = concat_speaker_times(s).times(t, 2);
                             % If the words fall into this segment, attribute
                             % the word to the speaker
                             if ((speaker_start <= (word_time + obj.time_shift)) && (speaker_end >= (word_time - obj.time_shift)))
-                                original_speaker_times(s).word_count = original_speaker_times(s).word_count + 1;
-                                % If first word in list, replace empty entry
-                                if (original_speaker_times(s).word_count == 1)
-                                    original_speaker_times(s).words(1) = current_word;
-                                    original_speaker_times(s).word_times(1) = word_time;
-                                    word_attributed = true;
-                                    break;
-                                end
-                                % Otherwise, append to list
-                                original_speaker_times(s).words = [original_speaker_times(s).words; current_word];
-                                original_speaker_times(s).word_times = [original_speaker_times(s).word_times; word_time];
-                                word_attributed = true;
-                                % Assign point to user for this given
-                                % speech segment
                                 speaker_points(w, speaker_col) = 1;
+                                word_attributed = true;
                                 break;
                             end
                         end
@@ -644,12 +677,133 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                             break;
                         end
                     end
-                    % Use Google's diarization to assume seperation point
-                    % for words and modify the speakers
-                    
-                    
+                end
+                % Use Google's diarization to assume seperation point
+                % for words and add words to the speakers
+                assumed_speaker = 1;
+                current_points = 0;
+                % Find who had the most words attirubted to them
+                for c = 1 : length(speaker_points(1, :))
+                    % Assume that the previous speaker can not be the same
+                    % as the current, otherwise the audio would not have
+                    % been diarized
+                    if (c == previous_speaker)
+                        continue;
+                    end
+                    % If it is not the same speaker, check to see if the
+                    % current speaker had more words attributed to them
+                    % than the previous
+                    if (sum(speaker_points(:, c)) > current_points)
+                        current_points = sum(speaker_points(:, c));
+                        assumed_speaker = c;
+                        previous_speaker = assumed_speaker;
+                    end
+                end
+                % Grab the name of the current speaker
+                concat_speaker_times(assumed_speaker).words = word_list;
+                concat_speaker_times(assumed_speaker).word_times = word_timings;
+            end
+            
+            % Remove any speakers that did not speak, and record the times
+            % when they spoke
+            speakerless_times = [];
+            true_speakers = concat_speaker_times;
+            deleted_speakers = 0;
+            for speaker = 1 : length(concat_speaker_times)
+                if(isempty(concat_speaker_times(speaker).words))
+                    % If person did not speak, record their times and
+                    % remove them from the list
+                    speakerless_times = [speakerless_times; concat_speaker_times(speaker).times];
+                    true_speakers(speaker - deleted_speakers) = [];
+                    deleted_speakers = deleted_speakers + 1;
                 end
             end
+            
+            % Attribute the speakerless windows the the speaker with the
+            % closest windows
+            if(~isempty(speakerless_times))
+                for t = 1 : length(speakerless_times(:, 1))
+                    current_sl_w = speakerless_times(t, :);
+                    min_distance = inf;
+                    for speaker = 1 : length(true_speakers)
+                        for w = 1 : length(true_speakers(speaker).times(:, 1))
+                            current_w = true_speakers(speaker).times(w, :);
+                            current_distance = abs(current_w(1) - current_sl_w(1)) + abs(current_w(2) - current_sl_w(2));
+
+                            % If the current distance is the smallest, record
+                            % the distance and the speaker
+                            if (current_distance < min_distance)
+                                min_distance = current_distance;
+                                most_likely_speaker = speaker;
+                            end
+                        end
+                    end
+
+                    % Append the window to the times of the most likely speaker
+                    true_speakers(most_likely_speaker).times = [true_speakers(most_likely_speaker).times; current_sl_w];
+                end
+            end
+            
+            % Sort the time list for each speaker
+            for speaker = 1 : length(true_speakers)
+                true_speakers(speaker).times = sort(true_speakers(speaker).times);
+            end
+            
+            % Modify speaker timings based on the diarization transition
+            % point
+            for speaker = 1 : length(true_speakers)
+                % Change speaker start to be at the end of the last speaker
+                start_time = true_speakers(speaker).word_times(1);
+                % Change speaker ending to be at the end of their last word
+                end_time = true_speakers(speaker).word_times(end);
+                % Start the index at 1
+                time_idx = 1;
+                while (time_idx < length(true_speakers).times(:, 1))
+                    % Store the window being used for the calculation
+                    current_window = true_speakers(speaker).times(time_idx, :);
+                    
+                    % If the first word said occurs before the speaker
+                    % started speaking, attirbute it to the previous
+                    % speaker
+                    if (current_window(1) < start_time)
+                        % If this is the first speaker, delete the entry
+                        if (speaker == 1)
+                            true_speakers(speaker).times(time_idx, :) = [];
+                            continue;
+                        end
+                        
+                        % If this is not the first speaker, attribute this
+                        % window to the previous speaker
+                        true_speakers(speaker - 1).times = [true_speakers(speaker - 1).times; current_window];
+                        true_speakers(speaker).times(time_idx, :) = [];
+                        continue;
+                    end
+                    
+                    % If last word said occurs before the speaker section
+                    % ends, end the speaker section at the end of their
+                    % last word spoken
+                    if (current_window(2) > end_time)
+                        
+                        % If there is a speaker after them, assign the
+                        % speach window to them
+                        if (~(speaker == length(true_speakers)))
+                            true_speakers(speaker + 1).times = [current_window; true_speakers(speaker + 1).times];
+                        end
+                        
+                        true_speakers(speaker).times(time_idx, :) = [];
+                        continue;
+                    end
+                    
+                    % Iterate time_idx
+                    time_idx = time_idx + 1;
+                end
+                
+                % Convert the times back to indices for plotting function
+                for i = 1 : length(true_speakers(speaker).times(:, 1))
+                    time_to_convert = true_speakers(speaker).times(i, :);
+                    true_speakers(speaker).idx = [true_speakers(speaker).idx; getIdxForTime(obj, time_to_convert, fs)];
+                end
+            end            
         end
     end
 end

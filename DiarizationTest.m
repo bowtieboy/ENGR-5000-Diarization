@@ -22,8 +22,8 @@ audio_stream = audio_stream.';
 %% Diarization Model
 
 % Create annotations
-[annotated_speakers, speakers] = speech_processing_model.annotateAudio(audio_stream, audio_freq, 0.6);
+annotated_speakers = speech_processing_model.annotateAudio(audio_stream, audio_freq, 0.5);
 % Visualize diarization
-speech_processing_model.visualizeResults(audio_stream, audio_freq, speakers);
+speech_processing_model.visualizeResults(audio_stream, audio_freq, annotated_speakers);
 
 

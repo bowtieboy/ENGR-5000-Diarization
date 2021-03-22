@@ -3,7 +3,7 @@ clc;
 %% Get into the correct dir
 
 cd('..\LibriSpeech\train-clean-360');
-readerNum = 38;
+readerNum = 98;
 cd (num2str(readerNum));
 
 %% Loop through files and make audio struct

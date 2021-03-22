@@ -4,8 +4,11 @@ function [audio, sampleRate, seperation_point] = TwoSpeakerCombiner(file1, file2
     [audio1, fs1] = audioread(file1);
     [audio2, fs2] = audioread(file2);
     
+    % Create 1s worth of silence
+    silence = zeros(1, fs1);
+    
     % Combine audio clips
-    audio = [audio1.', audio2.'];
+    audio = [audio1.', silence, audio2.'];
     
     % The point at which the clips seperate speakers
     seperation_point = length(audio1);
