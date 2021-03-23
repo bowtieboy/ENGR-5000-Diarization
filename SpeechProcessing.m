@@ -50,6 +50,11 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 fs = 16000;
             end
             
+            % If the audio is not a column vector, reshape it
+            if (~(length(audio(:, 1)) == 1))
+                audio = audio.';
+            end
+            
             % Normalize audio
             audio = (audio - min(audio)) ./ (max(audio) - min(audio));
                         
@@ -330,7 +335,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 addpath('./speech2text');
                 obj.speechObject = speechClient('Google','languageCode','en-US',...
                     'sampleRateHertz',16000,'enableWordTimeOffsets',true,...
-                    'enableSpeakerDiarization',true);
+                    'enableSpeakerDiarization',true,'enableAutomaticPunctuation',true);
             catch
                 assert(0, 'Can not find path to speech2text. Is it in this directory?')
             end
@@ -504,20 +509,20 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             y_min = min(audio);
             
             % Create new axes if none is given
-            fig = uifigure();
+            %fig = uifigure();
             if (nargin > 4)
                 ax = uiax;
             else
-                ax = uiaxes(fig);
+                ax = uiaxes('Position',[10 10 500 400]);
             end
             
             
             % Plot audio signal over time
             plot(ax, time, audio, 'k');
-            xlabel('Time (s)');
-            ylabel('Amplitude');
-            title('Diarization of Audio Signal');
-            hold on;
+            xlabel(ax, 'Time (s)');
+            ylabel(ax, 'Amplitude');
+            title(ax, 'Diarization of Audio Signal');
+            hold(ax, 'on');
             
             % Determine number of unique speakers and assign each a color
             unique_speakers = determineUniqueSpeakers(obj, speakers);
@@ -554,13 +559,13 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
             % Apply legend for colored regions
             ls = [];
             for c = 1 : length(unique_speakers)
-                eval(['l', num2str(c), ' = plot([NaN,NaN], speaker_colors(', num2str(c), '));']);
+                eval(['l', num2str(c), ' = plot(ax, [NaN,NaN], speaker_colors(', num2str(c), '));']);
                 eval(['ls = [ls, l', num2str(c), '];']);
             end
             legend(ls, unique_speakers)
         end
         
-        function [true_speakers] = annotateAudio(obj, audio, fs, threshold)
+        function true_speakers = annotateAudio(obj, audio, fs, threshold)
             
             % Diarize the audio segment to determine who spoke when
             [original_speaker_indices, ~, ~] = diarizeAudioClip(obj, audio, fs, threshold);
@@ -758,7 +763,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 end_time = true_speakers(speaker).word_times(end);
                 % Start the index at 1
                 time_idx = 1;
-                while (time_idx < length(true_speakers).times(:, 1))
+                while (time_idx <= length(true_speakers(speaker).times(:, 1)))
                     % Store the window being used for the calculation
                     current_window = true_speakers(speaker).times(time_idx, :);
                     
@@ -780,18 +785,19 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     end
                     
                     % If last word said occurs before the speaker section
-                    % ends, end the speaker section at the end of their
-                    % last word spoken
+                    % ends, attribute it to the next speaker
                     if (current_window(2) > end_time)
                         
                         % If there is a speaker after them, assign the
-                        % speach window to them
+                        % speach window to them and delete it from the
+                        % original speaker
                         if (~(speaker == length(true_speakers)))
                             true_speakers(speaker + 1).times = [current_window; true_speakers(speaker + 1).times];
+                            true_speakers(speaker).times(time_idx, :) = [];
+                            continue
                         end
-                        
-                        true_speakers(speaker).times(time_idx, :) = [];
-                        continue;
+                        % If there is no next speaker, leave the end time
+                        % as it is.
                     end
                     
                     % Iterate time_idx
@@ -804,6 +810,25 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     true_speakers(speaker).idx = [true_speakers(speaker).idx; getIdxForTime(obj, time_to_convert, fs)];
                 end
             end            
+        end
+        
+        % Print the sentences of each speaker to the screen
+        function speech_list = printAnnontation(~, annotated_speakers)
+            speech_list = [];
+            % Loop through the speakers and add their words to the string
+            for s = 1 : length(annotated_speakers)
+                for w = 1 : length(annotated_speakers(s).words)
+                    if (w == 1)
+                        speech = annotated_speakers(s).words(w);
+                    else
+                        speech = speech + " " + annotated_speakers(s).words(w);
+                    end
+                end
+            % Print the string
+            disp([annotated_speakers(s).speaker, ": ", speech]);
+            % Append the string to the list
+            speech_list = [speech_list; annotated_speakers(s).speaker + ":"; speech; ""];
+            end
         end
     end
 end

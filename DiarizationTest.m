@@ -23,7 +23,9 @@ audio_stream = audio_stream.';
 
 % Create annotations
 annotated_speakers = speech_processing_model.annotateAudio(audio_stream, audio_freq, 0.5);
+
 % Visualize diarization
 speech_processing_model.visualizeResults(audio_stream, audio_freq, annotated_speakers);
 
-
+% Print text to screen
+speech_list = speech_processing_model.printAnnontation(annotated_speakers);
