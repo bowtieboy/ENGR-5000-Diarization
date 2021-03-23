@@ -3,7 +3,7 @@ clc;
 %% Get into the correct dir
 
 cd('..\LibriSpeech\train-clean-360');
-readerNum = 79;
+readerNum = 98;
 cd (num2str(readerNum));
 
 %% Loop through files and make audio struct
@@ -11,6 +11,7 @@ cd (num2str(readerNum));
 % Create struct
 reader_audio = struct();
 index = 1;
+total_time = 0;
 
 % Get chapters subfolders
 disp('Creating audio struct.');
@@ -26,12 +27,19 @@ for c = 3 : length(chapters)
         end
         [current_audio, fs] = audioread(recordings(r).name);
         reader_audio(index).audio = current_audio.';
+        total_time = total_time + (length(current_audio) / fs);
         index = index + 1;
     end
     cd('..');
 end
 
 cd('../../../MATLAB');
+
+% Display the total amount of recorded audio from this user
+minutes = floor(total_time / 60);
+seconds = mod(total_time, 60);
+disp(['Reader #', num2str(readerNum), ' has ', num2str(minutes),...
+    ' minutes and ', num2str(seconds), ' seconds of audio data.']);
 
 %% Add reader to model
 

@@ -1,7 +1,7 @@
 clear;
 clc;
 %% Setup initial variables
-load('speechFilter.mat');
+load('speech_filter.mat');
 
 fs = 48000;
 endTime = 1;

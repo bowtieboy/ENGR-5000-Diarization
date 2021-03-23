@@ -10,25 +10,21 @@ catch
 end
 %% Get audio data
 
-file1 = 'C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\56\1730\56-1730-0000.flac';
-file2 = 'C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\56\1730\56-1730-0001.flac';
-file3 = 'C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\56\1730\56-1730-0002.flac';
-file4 = 'C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\56\1730\56-1730-0003.flac';
+file = 'C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Melanie\ieee.mp3';
+[audio, fs] = audioread(file);
+name = 'Melanie Lima';
 
-[audio1, fs1] = audioread(file1);
-[audio2, fs2] = audioread(file2);
-[audio3, fs3] = audioread(file3);
-[audio4, fs4] = audioread(file4);
-
+% Display the total amount of recorded audio from this user
+total_time = length(audio) / fs;
+minutes = floor(total_time / 60);
+seconds = mod(total_time, 60);
+disp(['Reader: ', name, ' has ', num2str(minutes),...
+    ' minutes and ', num2str(seconds), ' seconds of audio data.']);
 %% Format data
 
 audio_clips = struct();
-audio_clips(1).audio = audio1.';
-audio_clips(2).audio = audio2.';
-audio_clips(3).audio = audio3.';
-audio_clips(4).audio = audio4.';
-
+audio_clips(1).audio = audio.';
 %% Memorize speaker
 
-speech_processing_model.memorizeSpeaker(audio_clips, fs1, 'Random Internet Reader 2');
+speech_processing_model.memorizeSpeaker(audio_clips, fs, name);
 save('speech_processing_model.mat', 'speech_processing_model');

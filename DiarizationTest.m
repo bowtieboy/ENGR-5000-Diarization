@@ -9,11 +9,23 @@ catch
     assert(0, 'No SpeechProcessing model was detected.');
 end
 
-file1 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\38\121024\38-121024-0000.flac";
-file2 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\98\121658\98-121658-0004.flac";
-[audio_stream, audio_freq, sepeartion_point] = TwoSpeakerCombiner(file1, file2);
+% Librispeech
+% file1 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\38\121024\38-121024-0000.flac";
+% file2 = "C:\Users\froth\Documents\SeniorDesign\Diarization\LibriSpeech\train-clean-360\98\121658\98-121658-0004.flac";
+% [audio_stream, audio_freq, sepeartion_point] = TwoSpeakerCombiner(file1, file2);
+
+% Real speakers
+file = "C:\Users\froth\Documents\SeniorDesign\Diarization\Real Speakers\Evaluation\matt_and_mel.mp3";
+[audio_stream, audio_freq] = audioread(file);
+audio_stream = audio_stream.';
 
 %% Diarization Model
 
-[speakers, probability_matrix, speaker_names] = speech_processing_model.diarizeAudioClip(audio_stream, audio_freq, 0.6);
-speech_processing_model.visualizeResults(audio_stream, audio_freq, speakers);
+% Create annotations
+annotated_speakers = speech_processing_model.annotateAudio(audio_stream, audio_freq, 0.5);
+
+% Visualize diarization
+speech_processing_model.visualizeResults(audio_stream, audio_freq, annotated_speakers);
+
+% Print text to screen
+speech_list = speech_processing_model.printAnnontation(annotated_speakers);
