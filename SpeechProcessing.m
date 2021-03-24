@@ -1,7 +1,3 @@
-% TODO:
-%   Use Google's diarization to refine speaker identification points and
-%   words
-
 classdef (ConstructOnLoad) SpeechProcessing < handle
     
     % Private properties
@@ -335,7 +331,7 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                 addpath('./speech2text');
                 obj.speechObject = speechClient('Google','languageCode','en-US',...
                     'sampleRateHertz',16000,'enableWordTimeOffsets',true,...
-                    'enableSpeakerDiarization',true,'enableAutomaticPunctuation',true);
+                    'enableAutomaticPunctuation',true);
             catch
                 assert(0, 'Can not find path to speech2text. Is it in this directory?')
             end
@@ -604,8 +600,10 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                         times = [times; original_speaker_times(speaker).times];
                     end
                 end
+                % Create the fields associated with each speaker
                 concat_speaker_times(unique).speaker = string(unique_speakers(unique));
                 concat_speaker_times(unique).times = times;
+                concat_speaker_times(unique).words = [];
                 concat_speaker_times(unique).word_times = [];
                 concat_speaker_times(unique).idx = [];
             end
@@ -692,9 +690,9 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     % Assume that the previous speaker can not be the same
                     % as the current, otherwise the audio would not have
                     % been diarized
-                    if (c == previous_speaker)
-                        continue;
-                    end
+%                     if (c == previous_speaker)
+%                         continue;
+%                     end
                     % If it is not the same speaker, check to see if the
                     % current speaker had more words attributed to them
                     % than the previous
@@ -705,8 +703,8 @@ classdef (ConstructOnLoad) SpeechProcessing < handle
                     end
                 end
                 % Grab the name of the current speaker
-                concat_speaker_times(assumed_speaker).words = word_list;
-                concat_speaker_times(assumed_speaker).word_times = word_timings;
+                concat_speaker_times(assumed_speaker).words = [concat_speaker_times(assumed_speaker).words; word_list];
+                concat_speaker_times(assumed_speaker).word_times = [concat_speaker_times(assumed_speaker).word_times; word_timings];
             end
             
             % Remove any speakers that did not speak, and record the times
